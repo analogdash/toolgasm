@@ -13,6 +13,10 @@ sample_path = r'C:\samples'
 
 file_list = loadinfo(sample_path)
 
+f = open("demofile.csv", "a")
 for item in file_list:
-    f.write(item["filename"],",",hex(item["pe"].OPTIONAL_HEADER.AddressOfEntryPoint))
+    f.write(item["filename"]+","+hex(item["pe"].OPTIONAL_HEADER.AddressOfEntryPoint)+"\n")
+
+f.close()
+
 
