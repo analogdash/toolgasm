@@ -1,9 +1,0 @@
-import pefile
-from os import listdir
-
-sample_path = r'C:\samples'
-file_list = [sample_path + r'\\' + item for item in listdir(sample_path)]
-for exepath in file_list:
-    pe = pefile.PE(exepath)
-    print(hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
-
