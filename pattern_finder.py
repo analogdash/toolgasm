@@ -16,44 +16,47 @@ def loadinfo(sample_path):
         item["pe"] = pefile.PE(item["path"])
     return file_list
 
+def get_pattern(file_list, max_sled):
+    masterlist = []
+    for exeindex in range(0, len(file_list)):
+        exepath = file_list[exeindex]["path"]
+        pe = file_list[exeindex]["pe"]
+        pedata = pe.get_data(pe.OPTIONAL_HEADER.AddressOfEntryPoint, 4096)
+        if len(pedata) == 0:
+            masterlist = "WALA"
+            break
+        if len(pedata) != 4096:
+            pedata = truncate_pedata(pedata)
+        blocks = [{"ip":ip, "filter":pedata[ip:ip+max_sled]} for ip in range(0, len(pedata) - max_sled + 1)]
+        if exeindex == 0:
+            for prospect in blocks:
+                if any(entry["filter"] == prospect["filter"] for entry in masterlist):
+                    for entry in masterlist:
+                        if entry["filter"] == prospect["filter"]:
+                            entry["locs"] += [{"path":exepath, "ip":prospect["ip"]}]
+                else:
+                    masterlist.append({"filter" : prospect["filter"], "locs" : [{"path":exepath, "ip":prospect["ip"]}]})
+        else:
+            newlist = []
+            for prospect in blocks:
+                if any(entry["filter"] == prospect["filter"] for entry in masterlist):
+                    if any(entry["filter"] == prospect["filter"] for entry in newlist):
+                        for newentry in newlist:
+                            if newentry["filter"] == prospect["filter"]:
+                                newentry["locs"] += {"path":exepath, "ip":prospect["ip"]}
+                    else:
+                        newlist.append({"filter" : prospect["filter"], "locs" : [{"path":exepath, "ip":prospect["ip"]}] + next(entry["locs"] for entry in masterlist if entry["filter"] == prospect["filter"])})
+            masterlist = newlist
+        if masterlist == []:
+            break
+    return masterlist
+
+
 sample_path = r'C:\samples'
 
 file_list = loadinfo(sample_path)
 
-masterlist = []
-max_sled = 48
-
-for exeindex in range(0, len(file_list)):
-    exepath = file_list[exeindex]["path"]
-    pe = file_list[exeindex]["pe"]
-    pedata = pe.get_data(pe.OPTIONAL_HEADER.AddressOfEntryPoint, 4096)
-    if len(pedata) == 0:
-        masterlist = "WALA"
-        break
-    if len(pedata) != 4096:
-        pedata = truncate_pedata(pedata)
-    blocks = [{"ip":ip, "filter":pedata[ip:ip+max_sled]} for ip in range(0, len(pedata) - max_sled + 1)]
-    if exeindex == 0:
-        for prospect in blocks:
-            if any(entry["filter"] == prospect["filter"] for entry in masterlist):
-                for entry in masterlist:
-                    if entry["filter"] == prospect["filter"]:
-                        entry["locs"] += [{"path":exepath, "ip":prospect["ip"]}]
-            else:
-                masterlist.append({"filter" : prospect["filter"], "locs" : [{"path":exepath, "ip":prospect["ip"]}]})
-    else:
-        newlist = []
-        for prospect in blocks:
-            if any(entry["filter"] == prospect["filter"] for entry in masterlist):
-                if any(entry["filter"] == prospect["filter"] for entry in newlist):
-                    for newentry in newlist:
-                        if newentry["filter"] == prospect["filter"]:
-                            newentry["locs"] += {"path":exepath, "ip":prospect["ip"]}
-                else:
-                    newlist.append({"filter" : prospect["filter"], "locs" : [{"path":exepath, "ip":prospect["ip"]}] + next(entry["locs"] for entry in masterlist if entry["filter"] == prospect["filter"])})
-        masterlist = newlist
-    if masterlist == []:
-        break
+masterlist = get_pattern(file_list,48)
 
 len(masterlist)
 
