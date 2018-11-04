@@ -8,15 +8,24 @@ def truncate_pedata (pedata):
         i-= 1
     return pedata[0:i+1]
 
+def loadinfo(sample_path):
+    filenames = listdir(sample_path)
+    file_list = [{"filename": item} for item in filenames]
+    for item in file_list:
+        item["path"] = sample_path + r'\\' + item["filename"]
+        item["pe"] = pefile.PE(item["path"])
+    return file_list
+
 sample_path = r'C:\samples'
-file_list = [sample_path + r'\\' + item for item in listdir(sample_path)]
+
+file_list = loadinfo(sample_path)
 
 masterlist = []
 max_sled = 48
 
 for exeindex in range(0, len(file_list)):
-    exepath = file_list[exeindex]
-    pe = pefile.PE(exepath)
+    exepath = file_list[exeindex]["path"]
+    pe = file_list[exeindex]["pe"]
     pedata = pe.get_data(pe.OPTIONAL_HEADER.AddressOfEntryPoint, 4096)
     if len(pedata) == 0:
         masterlist = "WALA"
