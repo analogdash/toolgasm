@@ -7,6 +7,30 @@ import csv
 import re
 import requests
 import json
+import time
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+
+def strip_tags(body_text):
+    soup = BeautifulSoup(body_text, features="html.parser")
+    for script in soup(["script", "style"]):
+        script.extract()
+    text = soup.get_text()
+    lines = (line.strip() for line in text.splitlines())
+    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+    text = '\n'.join(chunk for chunk in chunks if chunk)
+    return text
+
+def gimme_domain(link_url):
+    data = urlparse(link_url)
+    return data.netloc
+
+def gimme_links(body_text):
+    soup = BeautifulSoup(body_text, features="html.parser")
+    links = []
+    for link in soup.find_all('a'):
+        links.append(link.get('href'))
+    return links
 
 def query_safebrowsing(urllist):
     apiurl = "https://safebrowsing.googleapis.com/v4/threatMatches:find?key=API_KEY"
@@ -33,7 +57,7 @@ def process(sample_path):
     #senders = set()
     
     for eml in file_list:
-    
+        print("Now doing " + eml["filename"] + "\n")
         #EML File properties
         eml["path"] = sample_path + r'\\' + eml["filename"]
         eml["filesize"] = path.getsize(eml["path"])
@@ -46,9 +70,11 @@ def process(sample_path):
         eml["receivers_n"] = len(receivers)
         if len(receivers) > 0:
             eml["last_receiver"] = receivers[-1]
-        
+        #use me 
         #Working on senders
         eml["from_raw"] = msg["from"]
+        eml["from_realname"] = email.utils.parseaddr(msg["from"])[0]
+        eml["from_emailaddress"] = email.utils.parseaddr(msg["from"])[1]
         eml["from_addresses"] = set(re.findall(r'[a-zA-Z0-9._&%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,24}', eml["from_raw"]))
         eml["from_n_emails"] = len(eml["from_addresses"])
         #senders.update(eml["from_addresses"])
@@ -63,45 +89,104 @@ def process(sample_path):
             eml["reply-to_raw"] = msg["reply-to_raw"]
             eml["reply-to_addresses"] = set(re.findall(r'[a-zA-Z0-9._&%\'+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,24}', msg["reply-to_raw"]))
             eml["reply-to_n"] = len(eml["reply-to_addresses"])
-            eml["reply-to_is_same"] = 0
+            eml["reply-to_is_same"] = False
             for reply_add in eml["reply-to_addresses"]:
                 if eml["from_raw"].find(reply_add) != -1:
-                    eml["reply-to_is_same"] = 1+
+                    eml["reply-to_is_same"] = True
         
         eml["subject"] = msg["subject"]
         
+        eml["date_raw"] = msg["Date"]
+        eml["date_unix"] = time.mktime(email.utils.parsedate(msg["Date"]))
+        eml["date_timezone"] = email.utils.parsedate_tz(msg["Date"])[9]
+        
+        eml["mailer"] = msg["X-Mailer"]
+        
         eml["content_type"] = msg.get_content_type()
+        eml["contents"] = []
+        for part in msg.walk():
+            eml["contents"].append(part.get_content_type())
+        eml["contents_n"] = len(eml["contents"])
+        
+        wordsoup = ""
+        links = []
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                wordsoup = wordsoup + part.get_content()
+            elif part.get_content_type() == "text/html":
+                links += gimme_links(part.get_content())
+                wordsoup = wordsoup + strip_tags(part.get_content())
+        
+        eml["domains"] = set()
+        if links != []:
+            for link in links:
+                if link != None:
+                    if link[0:6] != "mailto":
+                        dom = gimme_domain(link)
+                        if dom != "":
+                            eml["domains"].add(gimme_domain(link))
+        
+        eml["wordsoup"] = len(wordsoup)
+        #wordsoup
+        
+        eml["is_multipart"] = msg.is_multipart()
 
         #if eml["content_type"] == "text"
     #sender_domains = set()
     #for sender in senders:
     #    sender_domains.add(sender.split("@")[1])
     #CHECK GOOGLE SAFEBROWSING
-    #sender_domain_list = [{"url": domain} for domain in sender_domains]
+    #
     #ret = query_safebrowsing(sender_domain_list)
     #Check UFO LISt
-    #with open('5809f3509d3fb4065a46d602.csv', 'r') as csvfile:
-    #    uforeader = csv.reader(csvfile)
-    #    ufoset = set([row[1] for row in uforeader if row[0] == "domain"])
-    #bad_ufo = sender_domains.intersection(ufoset)
+
+    
+    # sketch_domains = set()
+    # for eml in file_list:
+        # for dom in eml["domains"]:
+            # sketch_domains.add(dom)
+
+    #sender_domain_list = [{"url": domain} for domain in sketch_domains]
+    #return query_safebrowsing(sender_domain_list)
+    
+    #print(ret.body)
+
+    # with open(r'ufolist.csv', 'r') as csvfile:
+       # uforeader = csv.reader(csvfile)
+       # ufoset = set([row[1] for row in uforeader if row[0] == "domain"])
+    # bad_ufo = sketch_domains.intersection(ufoset)
+    
+    # with open(r"sketchy_doms.txt", "w") as fp:
+        # for dom in bad_ufo:
+            # fp.write(dom + "\n")
     
     #Output to file
-    with open('names.csv', 'w', newline='', encoding='utf-8', errors='replace') as csvfile:
+    with open(r'names.csv', 'w', newline='', encoding='utf-8', errors='replace') as csvfile:
         fieldnames = ["suspected", "path", "filename", "filesize",
                       "last_receiver", "receivers_n",
-                      "from_raw", "from_addresses", "from_n_emails", "from_domains",
+                      "from_raw", "from_realname", "from_emailaddress", "from_addresses", "from_n_emails", "from_domains",
                       "reply-to_raw","reply-to_addresses", "reply-to_n", "reply-to_is_same",
                       "to",
-                      "subject",
-                      "content_type"]
+                      "subject", 
+                      "date_raw", "date_unix", "date_timezone",
+                      "mailer",
+                      "content_type", "contents", "contents_n", "is_multipart", "wordsoup",
+                      "domains"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for eml in file_list:
             writer.writerow(eml)
+            
+    return 0
 
 sample_path = r""
 
-senders = process(sample_path)
-#filename = r""
+ret = process(sample_path)
+
+#filename = r"" #fucky links
 #with open(filename, 'rb') as fp:
 #    msg = BytesParser(policy=policy.default).parse(fp)
+#body = msg.get_body().get_content()
+#links = gimme_links(body)
+
+
